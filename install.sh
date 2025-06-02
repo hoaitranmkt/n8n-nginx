@@ -135,7 +135,12 @@ chmod -R 755 $N8N_DIR
 cd $N8N_DIR
 docker-compose up -d
 
+# Thêm alias để cập nhật nhanh n8n
+echo "alias update-n8n='cd $N8N_DIR && docker-compose down && docker-compose pull && docker-compose up -d'" >> ~/.bashrc
+source ~/.bashrc
+
 # Thông báo hoàn tất
 echo "N8n và Portainer đã được cài đặt và cấu hình với Nginx."
 echo "Truy cập n8n tại: https://${N8N_DOMAIN}"
 echo "Truy cập Portainer tại: https://${PORTAINER_DOMAIN}"
+echo "Alias 'update-n8n' đã được thêm. Sử dụng lệnh 'update-n8n' để cập nhật n8n lên phiên bản mới nhất."
