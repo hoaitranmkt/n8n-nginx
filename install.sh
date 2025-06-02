@@ -37,11 +37,17 @@ N8N_DIR="/home/n8n"
 
 # Cài đặt Docker, Docker Compose và Nginx
 apt-get update
-apt-get install -y apt-transport-https ca-certificates curl software-properties-common nginx
+apt-get install -y apt-transport-https ca-certificates curl software-properties-common nginx ufw
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
 add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
 apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose
+
+# Mở cổng trên tường lửa
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw allow 5678/tcp
+ufw reload
 
 # Tạo thư mục cho n8n
 mkdir -p $N8N_DIR
@@ -89,6 +95,10 @@ EOF
 ln -s $NGINX_CONF $NGINX_LINK
 systemctl restart nginx
 
+# Cài đặt Let's Encrypt SSL
+apt-get install -y certbot python3-certbot-nginx
+certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m admin@$DOMAIN
+
 # Đặt quyền cho thư mục n8n
 chown -R 1000:1000 $N8N_DIR
 chmod -R 755 $N8N_DIR
@@ -101,6 +111,6 @@ docker-compose up -d
 echo "alias update-n8n='cd $N8N_DIR && docker-compose down && docker-compose pull && docker-compose up -d'" >> ~/.bashrc
 source ~/.bashrc
 
-echo "N8n đã được cài đặt và cấu hình với Nginx. Truy cập http://${DOMAIN} để sử dụng."
+echo "N8n đã được cài đặt và cấu hình với Nginx. Truy cập https://${DOMAIN} để sử dụng."
 echo "Các file cấu hình và dữ liệu được lưu trong $N8N_DIR"
 echo "Alias 'update-n8n' đã được thêm. Sử dụng lệnh 'update-n8n' để cập nhật n8n lên phiên bản mới nhất."
