@@ -20,20 +20,22 @@ check_domain() {
 }
 
 # Nhận input domain từ người dùng
-read -p "Enter your domain or subdomain: " DOMAIN
+read -p "Enter your main domain or subdomain for n8n: " N8N_DOMAIN
+read -p "Enter your subdomain for Portainer: " PORTAINER_DOMAIN
 
 # Kiểm tra domain
-if check_domain $DOMAIN; then
-    echo "Domain $DOMAIN has been correctly pointed to this server. Continuing installation"
+if check_domain $N8N_DOMAIN && check_domain $PORTAINER_DOMAIN; then
+    echo "Domains are correctly pointed to this server. Continuing installation."
 else
-    echo "Domain $DOMAIN has not been pointed to this server."
-    echo "Please update your DNS record to point $DOMAIN to IP $(curl -s https://api.ipify.org)"
-    echo "After updating the DNS, run this script again"
+    echo "One or more domains have not been pointed to this server."
+    echo "Please update your DNS records to point the domains to IP $(curl -s https://api.ipify.org)"
+    echo "After updating the DNS, run this script again."
     exit 1
 fi
 
-# Sử dụng thư mục /home trực tiếp
+# Thư mục cấu hình
 N8N_DIR="/home/n8n"
+PORTAINER_DIR="/home/portainer"
 
 # Cài đặt Docker, Docker Compose và Nginx
 apt-get update
@@ -49,10 +51,16 @@ ufw allow 443/tcp
 ufw allow 5678/tcp
 ufw reload
 
-# Tạo thư mục cho n8n
-mkdir -p $N8N_DIR
+# Cài đặt Portainer
+docker volume create portainer_data
+docker run -d -p 9443:9443 --name portainer \
+    --restart always \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v portainer_data:/data \
+    portainer/portainer-ce:latest
 
-# Tạo file docker-compose.yml
+# Tạo file docker-compose.yml cho n8n
+mkdir -p $N8N_DIR
 cat << EOF > $N8N_DIR/docker-compose.yml
 version: "3"
 services:
@@ -62,23 +70,26 @@ services:
     ports:
       - "5678:5678"
     environment:
-      - N8N_HOST=${DOMAIN}
+      - N8N_HOST=${N8N_DOMAIN}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
       - NODE_ENV=production
-      - WEBHOOK_URL=https://${DOMAIN}
+      - WEBHOOK_URL=https://${N8N_DOMAIN}
       - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
     volumes:
       - $N8N_DIR:/home/node/.n8n
 EOF
 
-# Cấu hình Nginx
-NGINX_CONF="/etc/nginx/sites-available/n8n"
-NGINX_LINK="/etc/nginx/sites-enabled/n8n"
-cat << EOF > $NGINX_CONF
+# Cấu hình Nginx cho n8n
+NGINX_CONF_N8N="/etc/nginx/sites-available/n8n"
+NGINX_CONF_PORTAINER="/etc/nginx/sites-available/portainer"
+NGINX_LINK_N8N="/etc/nginx/sites-enabled/n8n"
+NGINX_LINK_PORTAINER="/etc/nginx/sites-enabled/portainer"
+
+cat << EOF > $NGINX_CONF_N8N
 server {
     listen 80;
-    server_name ${DOMAIN};
+    server_name ${N8N_DOMAIN};
 
     location / {
         proxy_pass http://localhost:5678;
@@ -91,13 +102,30 @@ server {
 }
 EOF
 
+cat << EOF > $NGINX_CONF_PORTAINER
+server {
+    listen 80;
+    server_name ${PORTAINER_DOMAIN};
+
+    location / {
+        proxy_pass https://localhost:9443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+}
+EOF
+
 # Kích hoạt cấu hình Nginx
-ln -s $NGINX_CONF $NGINX_LINK
+ln -s $NGINX_CONF_N8N $NGINX_LINK_N8N
+ln -s $NGINX_CONF_PORTAINER $NGINX_LINK_PORTAINER
 systemctl restart nginx
 
-# Cài đặt Let's Encrypt SSL
+# Cài đặt Let's Encrypt SSL cho cả hai domain
 apt-get install -y certbot python3-certbot-nginx
-certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m admin@$DOMAIN
+certbot --nginx -d $N8N_DOMAIN -d $PORTAINER_DOMAIN --non-interactive --agree-tos -m admin@$N8N_DOMAIN
 
 # Đặt quyền cho thư mục n8n
 chown -R 1000:1000 $N8N_DIR
@@ -107,10 +135,7 @@ chmod -R 755 $N8N_DIR
 cd $N8N_DIR
 docker-compose up -d
 
-# Thêm alias để cập nhật nhanh n8n
-echo "alias update-n8n='cd $N8N_DIR && docker-compose down && docker-compose pull && docker-compose up -d'" >> ~/.bashrc
-source ~/.bashrc
-
-echo "N8n đã được cài đặt và cấu hình với Nginx. Truy cập https://${DOMAIN} để sử dụng."
-echo "Các file cấu hình và dữ liệu được lưu trong $N8N_DIR"
-echo "Alias 'update-n8n' đã được thêm. Sử dụng lệnh 'update-n8n' để cập nhật n8n lên phiên bản mới nhất."
+# Thông báo hoàn tất
+echo "N8n và Portainer đã được cài đặt và cấu hình với Nginx."
+echo "Truy cập n8n tại: https://${N8N_DOMAIN}"
+echo "Truy cập Portainer tại: https://${PORTAINER_DOMAIN}"
